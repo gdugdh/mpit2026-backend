@@ -36,12 +36,14 @@ func NewRouter(
 func (r *Router) Setup() *gin.Engine {
 	router := gin.Default()
 
-	// Health check
-	router.GET("/health", func(c *gin.Context) {
+	// Health check (supports both GET and HEAD)
+	healthHandler := func(c *gin.Context) {
 		c.JSON(200, gin.H{
 			"status": "ok",
 		})
-	})
+	}
+	router.GET("/health", healthHandler)
+	router.HEAD("/health", healthHandler)
 
 	// API v1
 	v1 := router.Group("/api/v1")
