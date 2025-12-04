@@ -35,16 +35,12 @@ docker-down:
 	docker-compose down
 
 migrate-up: docker-up
-	@echo "Running migrations..."
-	@if ! command -v migrate > /dev/null; then \
-		echo "Installing golang-migrate..."; \
-		go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest; \
-	fi
-	migrate -path migrations -database "postgresql://dating_user:dating_pass@localhost:5432/dating_db?sslmode=disable" up
+	@echo "Applying migrations via Docker..."
+	docker compose run --rm migrate -path=/migrations -database "postgresql://dating_user:dating_pass@postgres:5432/dating_db?sslmode=disable" up
 
 migrate-down:
-	@echo "Rolling back last migration..."
-	migrate -path migrations -database "postgresql://dating_user:dating_pass@localhost:5432/dating_db?sslmode=disable" down 1
+	@echo "Rolling back last migration via Docker..."
+	docker compose run --rm migrate -path=/migrations -database "postgresql://dating_user:dating_pass@postgres:5432/dating_db?sslmode=disable" down 1
 
 migrate-create:
 	@read -p "Enter migration name: " name; \

@@ -1,6 +1,26 @@
 version: '3.9'
 
 services:
+  # Main HTTP server (always running)
+  server:
+    build: ./
+    container_name: dating_server
+    command: ["server"]
+    restart: always
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - dating_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   postgres:
     image: postgres:15-alpine
     container_name: dating_postgres
@@ -34,6 +54,20 @@ services:
       retries: 5
     networks:
       - dating_network
+
+  # Database migration tool (run manually)
+  migrate:
+    image: migrate/migrate:latest
+    container_name: dating_migrate
+    volumes:
+      - ./migrations:/migrations
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - dating_network
+    profiles:
+      - tools  # Does not start automatically with 'docker-compose up'
 
 volumes:
   postgres_data:
