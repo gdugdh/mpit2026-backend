@@ -1,4 +1,4 @@
-version: '3.9'
+version: "3.9"
 
 services:
   # Main HTTP server (always running)
@@ -67,7 +67,7 @@ services:
     networks:
       - dating_network
     profiles:
-      - tools  # Does not start automatically with 'docker-compose up'
+      - tools # Does not start automatically with 'docker-compose up'
 
 volumes:
   postgres_data:
