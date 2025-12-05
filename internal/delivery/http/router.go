@@ -36,6 +36,9 @@ func NewRouter(
 func (r *Router) Setup() *gin.Engine {
 	router := gin.Default()
 
+	// Add CORS middleware
+	router.Use(middleware.CORSMiddleware())
+
 	// Health check (supports both GET and HEAD)
 	healthHandler := func(c *gin.Context) {
 		c.JSON(200, gin.H{
