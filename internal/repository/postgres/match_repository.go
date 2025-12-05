@@ -8,6 +8,7 @@ import (
 	"github.com/gdugdh24/mpit2026-backend/internal/domain"
 	"github.com/gdugdh24/mpit2026-backend/internal/repository"
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 )
 
 type matchRepository struct {
@@ -26,11 +27,11 @@ func (r *matchRepository) Create(ctx context.Context, match *domain.Match) error
 	}
 
 	query := `
-		INSERT INTO matches (user1_id, user2_id, is_active)
-		VALUES ($1, $2, $3)
+		INSERT INTO matches (user1_id, user2_id, is_active, match_explanation, icebreakers)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, created_at
 	`
-	err := r.db.QueryRowContext(ctx, query, user1ID, user2ID, match.IsActive).
+	err := r.db.QueryRowContext(ctx, query, user1ID, user2ID, match.IsActive, match.Explanation, pq.Array(match.Icebreakers)).
 		Scan(&match.ID, &match.CreatedAt)
 
 	match.User1ID = user1ID

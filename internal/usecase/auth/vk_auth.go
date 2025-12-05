@@ -19,6 +19,7 @@ import (
 
 type VKAuthUseCase struct {
 	userRepo    repository.UserRepository
+	profileRepo repository.ProfileRepository
 	sessionRepo repository.SessionRepository
 	vkSecret    string
 	jwtSecret   string
@@ -27,12 +28,14 @@ type VKAuthUseCase struct {
 
 func NewVKAuthUseCase(
 	userRepo repository.UserRepository,
+	profileRepo repository.ProfileRepository,
 	sessionRepo repository.SessionRepository,
 	vkSecret string,
 	jwtSecret string,
 ) *VKAuthUseCase {
 	return &VKAuthUseCase{
 		userRepo:    userRepo,
+		profileRepo: profileRepo,
 		sessionRepo: sessionRepo,
 		vkSecret:    vkSecret,
 		jwtSecret:   jwtSecret,
@@ -42,14 +45,14 @@ func NewVKAuthUseCase(
 
 // VKLaunchParams represents VK Mini App launch parameters
 type VKLaunchParams struct {
-	VKID           int       `json:"vk_user_id"`
-	AppID          int       `json:"vk_app_id"`
-	IsAppUser      int       `json:"vk_is_app_user"`
-	AreNotificationsEnabled int `json:"vk_are_notifications_enabled"`
-	Language       string    `json:"vk_language"`
-	Platform       string    `json:"vk_platform"`
-	AccessTokenSettings string `json:"vk_access_token_settings"`
-	Sign           string    `json:"sign"`
+	VKID                    int    `json:"vk_user_id"`
+	AppID                   int    `json:"vk_app_id"`
+	IsAppUser               int    `json:"vk_is_app_user"`
+	AreNotificationsEnabled int    `json:"vk_are_notifications_enabled"`
+	Language                string `json:"vk_language"`
+	Platform                string `json:"vk_platform"`
+	AccessTokenSettings     string `json:"vk_access_token_settings"`
+	Sign                    string `json:"sign"`
 }
 
 // AuthResponse represents the authentication response
@@ -129,6 +132,50 @@ func (uc *VKAuthUseCase) AuthenticateVK(ctx context.Context, params map[string]s
 	}, nil
 }
 
+// AuthenticateVKTest authenticates user for testing without signature verification
+func (uc *VKAuthUseCase) AuthenticateVKTest(ctx context.Context, params map[string]string, deviceInfo, ipAddress string) (*AuthResponse, error) {
+	// Skip signature verification for test endpoint
+
+	vkID := 0
+	fmt.Sscanf(params["vk_user_id"], "%d", &vkID)
+	if vkID == 0 {
+		return nil, domain.ErrInvalidInput
+	}
+
+	// Try to get existing user
+	user, err := uc.userRepo.GetByVKID(ctx, vkID)
+	isNewUser := false
+
+	if err == domain.ErrUserNotFound {
+		// Create new user
+		user, err = uc.createUserFromVK(ctx, vkID, params)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create user: %w", err)
+		}
+		isNewUser = true
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Update online status
+	if err := uc.userRepo.UpdateOnlineStatus(ctx, user.ID, true); err != nil {
+		return nil, fmt.Errorf("failed to update online status: %w", err)
+	}
+
+	// Create session
+	token, expiresAt, err := uc.createSession(ctx, user.ID, deviceInfo, ipAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create session: %w", err)
+	}
+
+	return &AuthResponse{
+		Token:     token,
+		ExpiresAt: expiresAt,
+		User:      user,
+		IsNewUser: isNewUser,
+	}, nil
+}
+
 // verifyVKSignature verifies VK Mini App launch params signature
 func (uc *VKAuthUseCase) verifyVKSignature(params map[string]string) error {
 	sign := params["sign"]
@@ -179,6 +226,31 @@ func (uc *VKAuthUseCase) verifyVKSignature(params map[string]string) error {
 	return nil
 }
 
+// createUserFromVK creates a new user from VK params
+func (uc *VKAuthUseCase) createUserFromVK(ctx context.Context, vkID int, params map[string]string) (*domain.User, error) {
+	// Parse gender from params
+	gender := domain.GenderMale
+	if g, ok := params["gender"]; ok {
+		if g == "female" {
+			gender = domain.GenderFemale
+		}
+	}
+
+	// Parse birth_date from params
+	birthDate := time.Now().AddDate(-20, 0, 0) // Default
+	if bd, ok := params["birth_date"]; ok {
+		if parsed, err := time.Parse("2006-01-02", bd); err == nil {
+			birthDate = parsed
+		}
+	}
+
+	user := &domain.User{
+		VKID:       vkID,
+		Gender:     gender,
+		BirthDate:  birthDate,
+		IsVerified: false,
+		IsOnline:   true,
+    
 // createUserFromVKInfo creates a new user from VK API data
 func (uc *VKAuthUseCase) createUserFromVKInfo(ctx context.Context, vkInfo *vkapi.VKUserInfo, accessToken string) (*domain.User, error) {
 	// Parse gender
@@ -212,6 +284,22 @@ func (uc *VKAuthUseCase) createUserFromVKInfo(ctx context.Context, vkInfo *vkapi
 
 	if err := uc.userRepo.Create(ctx, user); err != nil {
 		return nil, err
+	}
+
+	// Auto-create profile for new user
+	displayName := params["first_name"]
+	if lastName, ok := params["last_name"]; ok && lastName != "" {
+		displayName = displayName + " " + lastName
+	}
+
+	profile := &domain.Profile{
+		UserID:      user.ID,
+		DisplayName: displayName,
+	}
+
+	if err := uc.profileRepo.Create(ctx, profile); err != nil {
+		// Don't fail user creation if profile creation fails
+		fmt.Printf("Warning: failed to create profile for user %d: %v\n", user.ID, err)
 	}
 
 	return user, nil

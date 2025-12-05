@@ -55,6 +55,7 @@ func (r *Router) Setup() *gin.Engine {
 		auth := v1.Group("/auth")
 		{
 			auth.POST("/vk", r.authHandler.VKAuth)
+			auth.POST("/test", r.authHandler.TestAuth) // Test endpoint for development
 			auth.POST("/logout", r.authMiddleware.RequireAuth(), r.authHandler.Logout)
 			auth.GET("/me", r.authMiddleware.RequireAuth(), r.authHandler.Me)
 		}

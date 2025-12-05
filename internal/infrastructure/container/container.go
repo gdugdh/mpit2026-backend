@@ -8,6 +8,7 @@ import (
 	"github.com/gdugdh24/mpit2026-backend/internal/delivery/http/handler"
 	"github.com/gdugdh24/mpit2026-backend/internal/delivery/http/middleware"
 	"github.com/gdugdh24/mpit2026-backend/internal/infrastructure/database"
+	"github.com/gdugdh24/mpit2026-backend/internal/infrastructure/gemini"
 	"github.com/gdugdh24/mpit2026-backend/internal/infrastructure/server"
 	"github.com/gdugdh24/mpit2026-backend/internal/repository/postgres"
 	"github.com/gdugdh24/mpit2026-backend/internal/usecase/auth"
@@ -25,6 +26,7 @@ type Container struct {
 	DB     *sqlx.DB
 	Redis  *redis.Client
 	Server *server.Server
+	Gemini *gemini.GeminiClient
 }
 
 // NewContainer creates a new dependency injection container
@@ -41,6 +43,13 @@ func NewContainer(cfg *config.Config) (*Container, error) {
 	// 	return nil, fmt.Errorf("failed to initialize redis: %w", err)
 	// }
 
+	// Initialize Gemini Client
+	geminiClient, err := gemini.NewGeminiClient(cfg.GeminiAPIKey)
+	if err != nil {
+		fmt.Printf("Warning: Failed to initialize Gemini client: %v\n", err)
+		// Don't fail, just continue without AI features
+	}
+
 	// Initialize repositories
 	userRepo := postgres.NewUserRepository(db)
 	profileRepo := postgres.NewProfileRepository(db)
@@ -54,6 +63,7 @@ func NewContainer(cfg *config.Config) (*Container, error) {
 	// Initialize use cases
 	authUseCase := auth.NewVKAuthUseCase(
 		userRepo,
+		profileRepo,
 		sessionRepo,
 		cfg.VK.SecretKey,
 		cfg.JWT.AccessSecret,
@@ -79,6 +89,7 @@ func NewContainer(cfg *config.Config) (*Container, error) {
 		matchRepo,
 		profileRepo,
 		userRepo,
+		geminiClient,
 	)
 
 	// Initialize handlers
@@ -112,6 +123,7 @@ func NewContainer(cfg *config.Config) (*Container, error) {
 		DB:     db,
 		Redis:  nil,
 		Server: srv,
+		Gemini: geminiClient,
 	}, nil
 }
 

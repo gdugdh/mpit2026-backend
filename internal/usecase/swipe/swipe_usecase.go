@@ -5,14 +5,16 @@ import (
 	"fmt"
 
 	"github.com/gdugdh24/mpit2026-backend/internal/domain"
+	"github.com/gdugdh24/mpit2026-backend/internal/infrastructure/gemini"
 	"github.com/gdugdh24/mpit2026-backend/internal/repository"
 )
 
 type SwipeUseCase struct {
-	swipeRepo   repository.SwipeRepository
-	matchRepo   repository.MatchRepository
-	profileRepo repository.ProfileRepository
-	userRepo    repository.UserRepository
+	swipeRepo    repository.SwipeRepository
+	matchRepo    repository.MatchRepository
+	profileRepo  repository.ProfileRepository
+	userRepo     repository.UserRepository
+	geminiClient *gemini.GeminiClient
 }
 
 func NewSwipeUseCase(
@@ -20,12 +22,14 @@ func NewSwipeUseCase(
 	matchRepo repository.MatchRepository,
 	profileRepo repository.ProfileRepository,
 	userRepo repository.UserRepository,
+	geminiClient *gemini.GeminiClient,
 ) *SwipeUseCase {
 	return &SwipeUseCase{
-		swipeRepo:   swipeRepo,
-		matchRepo:   matchRepo,
-		profileRepo: profileRepo,
-		userRepo:    userRepo,
+		swipeRepo:    swipeRepo,
+		matchRepo:    matchRepo,
+		profileRepo:  profileRepo,
+		userRepo:     userRepo,
+		geminiClient: geminiClient,
 	}
 }
 
@@ -91,24 +95,46 @@ func (uc *SwipeUseCase) CreateSwipe(ctx context.Context, swiperID int, req *Swip
 
 	// If it's a like, check for mutual like (match)
 	if req.IsLike {
+		// 1. Reinforcement Learning: Update user's preferences
+		// We do this asynchronously to not block the response
+		go uc.updateUserPreferences(ctx, swiperID, req.SwipedUserID)
+
 		isMutual, err := uc.swipeRepo.CheckMutualLike(ctx, swiperID, req.SwipedUserID)
 		if err != nil {
+			fmt.Printf("❌ [Match] CheckMutualLike failed: %v\n", err)
 			return response, nil // Return swipe even if match check fails
 		}
 
+		fmt.Printf("🔍 [Match] CheckMutualLike result: %v (swiper=%d, swiped=%d)\n", isMutual, swiperID, req.SwipedUserID)
+
 		if isMutual {
+			fmt.Printf("💕 [Match] Mutual like detected! Creating match...\n")
 			// Create match
 			match, err := uc.createMatch(ctx, swiperID, req.SwipedUserID)
 			if err != nil {
+				fmt.Printf("❌ [Match] createMatch failed: %v\n", err)
 				return response, nil // Return swipe even if match creation fails
 			}
+			fmt.Printf("✅ [Match] Match created: ID=%d\n", match.ID)
 
 			// Get matched user profile
 			matchedUser, err := uc.getMatchedUserProfile(ctx, req.SwipedUserID)
 			if err == nil {
+				fmt.Printf("✅ [Match] Got matched user profile: %s\n", matchedUser.DisplayName)
 				response.IsMatch = true
 				response.Match = match
 				response.MatchedUser = matchedUser
+
+				// 2. AI Wingman: Generate explanation and icebreakers
+				// Call synchronously for debugging (normally would be async)
+				if uc.geminiClient != nil {
+					fmt.Printf("✅ [AI Wingman] geminiClient is available, calling enrichMatchWithAI...\n")
+					uc.enrichMatchWithAI(ctx, match.ID, swiperID, req.SwipedUserID)
+				} else {
+					fmt.Printf("❌ [AI Wingman] geminiClient is nil, skipping AI enrichment\n")
+				}
+			} else {
+				fmt.Printf("❌ [Match] getMatchedUserProfile failed: %v\n", err)
 			}
 		}
 	}
@@ -245,4 +271,117 @@ func asinApprox(x float64) float64 {
 		return 0
 	}
 	return x + x*x*x/6 + 3*x*x*x*x*x/40
+}
+
+// updateUserPreferences implements Reinforcement Learning
+// It shifts the user's "Ideal Partner" vector towards the swiped user's traits
+func (uc *SwipeUseCase) updateUserPreferences(ctx context.Context, swiperID, swipedID int) {
+	// Get swiper profile
+	swiperProfile, err := uc.profileRepo.GetByUserID(ctx, swiperID)
+	if err != nil {
+		return
+	}
+
+	// Get swiped user profile (to get their traits)
+	swipedProfile, err := uc.profileRepo.GetByUserID(ctx, swipedID)
+	if err != nil {
+		return
+	}
+
+	// If swiped user doesn't have traits set (e.g. didn't take test), we can't learn
+	if swipedProfile.PrefOpenness == nil {
+		return
+	}
+
+	// Learning rate (how fast we adapt)
+	const learningRate = 0.1
+
+	// Helper to update a single trait
+	updateTrait := func(current *float64, target *float64) *float64 {
+		if current == nil {
+			// If not set, initialize with target
+			val := *target
+			return &val
+		}
+		if target == nil {
+			return current
+		}
+		// New = Old + LR * (Target - Old)
+		val := *current + learningRate*(*target-*current)
+		return &val
+	}
+
+	// Update preferences
+	swiperProfile.PrefOpenness = updateTrait(swiperProfile.PrefOpenness, swipedProfile.PrefOpenness) // Using their actual traits as target
+	swiperProfile.PrefConscientiousness = updateTrait(swiperProfile.PrefConscientiousness, swipedProfile.PrefConscientiousness)
+	swiperProfile.PrefExtraversion = updateTrait(swiperProfile.PrefExtraversion, swipedProfile.PrefExtraversion)
+	swiperProfile.PrefAgreeableness = updateTrait(swiperProfile.PrefAgreeableness, swipedProfile.PrefAgreeableness)
+	swiperProfile.PrefNeuroticism = updateTrait(swiperProfile.PrefNeuroticism, swipedProfile.PrefNeuroticism)
+
+	// Save updated profile
+	_ = uc.profileRepo.Update(ctx, swiperProfile)
+}
+
+func (uc *SwipeUseCase) enrichMatchWithAI(ctx context.Context, matchID, user1ID, user2ID int) {
+	fmt.Printf("🤖 [AI Wingman] Starting enrichMatchWithAI for match %d (users %d and %d)\n", matchID, user1ID, user2ID)
+
+	// Get profiles
+	p1, err := uc.profileRepo.GetByUserID(ctx, user1ID)
+	if err != nil {
+		fmt.Printf("❌ [AI Wingman] Failed to get profile for user %d: %v\n", user1ID, err)
+		return
+	}
+	p2, err := uc.profileRepo.GetByUserID(ctx, user2ID)
+	if err != nil {
+		fmt.Printf("❌ [AI Wingman] Failed to get profile for user %d: %v\n", user2ID, err)
+		return
+	}
+
+	fmt.Printf("✅ [AI Wingman] Got profiles: %s and %s\n", p1.DisplayName, p2.DisplayName)
+
+	// Prepare data for Gemini
+	traits1 := map[string]interface{}{
+		"Name":      p1.DisplayName,
+		"Interests": p1.Interests,
+		"Bio":       p1.Bio,
+	}
+	if p1.PrefOpenness != nil {
+		traits1["BigFive"] = map[string]float64{
+			"Openness":     *p1.PrefOpenness, // Using pref as proxy for self if self not separate
+			"Extraversion": *p1.PrefExtraversion,
+		}
+	}
+
+	traits2 := map[string]interface{}{
+		"Name":      p2.DisplayName,
+		"Interests": p2.Interests,
+		"Bio":       p2.Bio,
+	}
+	if p2.PrefOpenness != nil {
+		traits2["BigFive"] = map[string]float64{
+			"Openness":     *p2.PrefOpenness,
+			"Extraversion": *p2.PrefExtraversion,
+		}
+	}
+
+	// Generate Explanation
+	fmt.Printf("🔮 [AI Wingman] Calling Gemini for match explanation...\n")
+	explanation, err := uc.geminiClient.GenerateMatchExplanation(ctx, traits1, traits2)
+	if err == nil {
+		fmt.Printf("✨ AI Explanation: %s\n", explanation)
+	} else {
+		fmt.Printf("❌ [AI Wingman] Failed to generate explanation: %v\n", err)
+	}
+
+	// Generate Icebreakers (for User 1 to send to User 2)
+	fmt.Printf("🔮 [AI Wingman] Calling Gemini for icebreakers...\n")
+	icebreakers, err := uc.geminiClient.GenerateIcebreakers(ctx, p1.Interests, p2.Interests)
+	if err == nil {
+		fmt.Printf("✨ AI Icebreakers: %v\n", icebreakers)
+	} else {
+		fmt.Printf("❌ [AI Wingman] Failed to generate icebreakers: %v\n", err)
+	}
+
+	// TODO: Save to DB. I need to add UpdateAIFields to MatchRepository.
+	fmt.Printf("⚠️  [AI Wingman] Note: AI content not saved to DB (UpdateAIFields not implemented)\n")
 }

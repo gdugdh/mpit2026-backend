@@ -25,9 +25,10 @@ func (r *profileRepository) Create(ctx context.Context, profile *domain.Profile)
 		INSERT INTO profiles (
 			user_id, display_name, bio, city, interests,
 			location_lat, location_lon, location_updated_at,
-			pref_min_age, pref_max_age, pref_max_distance_km, is_onboarding_complete
+			pref_min_age, pref_max_age, pref_max_distance_km, is_onboarding_complete,
+			pref_openness, pref_conscientiousness, pref_extraversion, pref_agreeableness, pref_neuroticism
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
 		RETURNING id, created_at, updated_at
 	`
 	return r.db.QueryRowContext(
@@ -36,6 +37,8 @@ func (r *profileRepository) Create(ctx context.Context, profile *domain.Profile)
 		pq.Array(profile.Interests), profile.LocationLat, profile.LocationLon,
 		profile.LocationUpdatedAt, profile.PrefMinAge, profile.PrefMaxAge,
 		profile.PrefMaxDistanceKm, profile.IsOnboardingComplete,
+		profile.PrefOpenness, profile.PrefConscientiousness, profile.PrefExtraversion,
+		profile.PrefAgreeableness, profile.PrefNeuroticism,
 	).Scan(&profile.ID, &profile.CreatedAt, &profile.UpdatedAt)
 }
 
@@ -54,8 +57,25 @@ func (r *profileRepository) GetByID(ctx context.Context, id int) (*domain.Profil
 
 func (r *profileRepository) GetByUserID(ctx context.Context, userID int) (*domain.Profile, error) {
 	var profile domain.Profile
-	query := `SELECT * FROM profiles WHERE user_id = $1`
-	err := r.db.GetContext(ctx, &profile, query, userID)
+	query := `
+		SELECT id, user_id, display_name, bio, city, interests,
+		       location_lat, location_lon, location_updated_at,
+		       pref_min_age, pref_max_age, pref_max_distance_km,
+		       is_onboarding_complete,
+		       pref_openness, pref_conscientiousness, pref_extraversion,
+		       pref_agreeableness, pref_neuroticism,
+		       created_at, updated_at
+		FROM profiles WHERE user_id = $1
+	`
+	err := r.db.QueryRowContext(ctx, query, userID).Scan(
+		&profile.ID, &profile.UserID, &profile.DisplayName, &profile.Bio, &profile.City, pq.Array(&profile.Interests),
+		&profile.LocationLat, &profile.LocationLon, &profile.LocationUpdatedAt,
+		&profile.PrefMinAge, &profile.PrefMaxAge, &profile.PrefMaxDistanceKm,
+		&profile.IsOnboardingComplete,
+		&profile.PrefOpenness, &profile.PrefConscientiousness, &profile.PrefExtraversion,
+		&profile.PrefAgreeableness, &profile.PrefNeuroticism,
+		&profile.CreatedAt, &profile.UpdatedAt,
+	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, domain.ErrProfileNotFound
@@ -71,8 +91,11 @@ func (r *profileRepository) Update(ctx context.Context, profile *domain.Profile)
 		SET display_name = $1, bio = $2, city = $3, interests = $4,
 		    location_lat = $5, location_lon = $6, location_updated_at = $7,
 		    pref_min_age = $8, pref_max_age = $9, pref_max_distance_km = $10,
-		    is_onboarding_complete = $11, updated_at = CURRENT_TIMESTAMP
-		WHERE id = $12
+		    is_onboarding_complete = $11,
+			pref_openness = $12, pref_conscientiousness = $13, pref_extraversion = $14,
+			pref_agreeableness = $15, pref_neuroticism = $16,
+			updated_at = CURRENT_TIMESTAMP
+		WHERE id = $17
 		RETURNING updated_at
 	`
 	return r.db.QueryRowContext(
@@ -80,7 +103,10 @@ func (r *profileRepository) Update(ctx context.Context, profile *domain.Profile)
 		profile.DisplayName, profile.Bio, profile.City, pq.Array(profile.Interests),
 		profile.LocationLat, profile.LocationLon, profile.LocationUpdatedAt,
 		profile.PrefMinAge, profile.PrefMaxAge, profile.PrefMaxDistanceKm,
-		profile.IsOnboardingComplete, profile.ID,
+		profile.IsOnboardingComplete,
+		profile.PrefOpenness, profile.PrefConscientiousness, profile.PrefExtraversion,
+		profile.PrefAgreeableness, profile.PrefNeuroticism,
+		profile.ID,
 	).Scan(&profile.UpdatedAt)
 }
 

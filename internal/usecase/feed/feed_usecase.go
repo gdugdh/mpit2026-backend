@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 
+	"github.com/gdugdh24/mpit2026-backend/internal/domain"
 	"github.com/gdugdh24/mpit2026-backend/internal/repository"
 )
 
@@ -28,14 +30,15 @@ func NewFeedUseCase(
 
 // FeedUserResponse represents a user in the feed
 type FeedUserResponse struct {
-	ID          int      `json:"id"`
-	UserID      int      `json:"user_id"`
-	DisplayName string   `json:"display_name"`
-	Bio         *string  `json:"bio"`
-	City        *string  `json:"city"`
-	Age         int      `json:"age"`
-	Interests   []string `json:"interests"`
-	DistanceKm  *float64 `json:"distance_km,omitempty"`
+	ID                 int      `json:"id"`
+	UserID             int      `json:"user_id"`
+	DisplayName        string   `json:"display_name"`
+	Bio                *string  `json:"bio"`
+	City               *string  `json:"city"`
+	Age                int      `json:"age"`
+	Interests          []string `json:"interests"`
+	DistanceKm         *float64 `json:"distance_km,omitempty"`
+	CompatibilityScore int      `json:"compatibility_score"`
 }
 
 // GetNextUser returns the next user for feed
@@ -69,7 +72,14 @@ func (uc *FeedUseCase) GetNextUser(ctx context.Context, currentUserID int) (*Fee
 		return nil, fmt.Errorf("failed to search profiles: %w", err)
 	}
 
-	// Filter candidates
+	// Filter candidates and calculate scores
+	type ScoredCandidate struct {
+		Profile *domain.Profile
+		Score   float64
+		User    *domain.User
+	}
+	var scoredCandidates []ScoredCandidate
+
 	for _, candidate := range candidates {
 		// Skip self
 		if candidate.UserID == currentUserID {
@@ -120,21 +130,148 @@ func (uc *FeedUseCase) GetNextUser(ctx context.Context, currentUserID int) (*Fee
 			distanceKm = &distance
 		}
 
-		// Found suitable candidate
+		// Calculate Compatibility Score
+		score := uc.calculateCompatibilityScore(currentProfile, candidate, distanceKm)
+		scoredCandidates = append(scoredCandidates, ScoredCandidate{
+			Profile: candidate,
+			Score:   score,
+			User:    candidateUser,
+		})
+	}
+
+	// Sort by score descending
+	sort.Slice(scoredCandidates, func(i, j int) bool {
+		return scoredCandidates[i].Score > scoredCandidates[j].Score
+	})
+
+	// Return top candidate
+	if len(scoredCandidates) > 0 {
+		best := scoredCandidates[0]
+
+		// Calculate distance again for response (optimization: could store it)
+		var distanceKm *float64
+		if currentProfile.LocationLat != nil && currentProfile.LocationLon != nil &&
+			best.Profile.LocationLat != nil && best.Profile.LocationLon != nil {
+			d := calculateDistance(
+				*currentProfile.LocationLat, *currentProfile.LocationLon,
+				*best.Profile.LocationLat, *best.Profile.LocationLon,
+			)
+			distanceKm = &d
+		}
+
 		return &FeedUserResponse{
-			ID:          candidate.ID,
-			UserID:      candidate.UserID,
-			DisplayName: candidate.DisplayName,
-			Bio:         candidate.Bio,
-			City:        candidate.City,
-			Age:         age,
-			Interests:   candidate.Interests,
-			DistanceKm:  distanceKm,
+			ID:                 best.Profile.ID,
+			UserID:             best.Profile.UserID,
+			DisplayName:        best.Profile.DisplayName,
+			Bio:                best.Profile.Bio,
+			City:               best.Profile.City,
+			Age:                best.User.Age(),
+			Interests:          best.Profile.Interests,
+			DistanceKm:         distanceKm,
+			CompatibilityScore: int(best.Score), // Add this field to response
 		}, nil
 	}
 
 	// No more users in feed
 	return nil, nil
+}
+
+// calculateCompatibilityScore calculates a 0-100 score
+func (uc *FeedUseCase) calculateCompatibilityScore(me, candidate *domain.Profile, distanceKm *float64) float64 {
+	score := 0.0
+
+	// 1. Personality Compatibility (40%)
+	// Compare My Ideal (Preferences) vs Candidate's Real (Traits)
+	// If I don't have preferences yet (new user), use my own traits (assume looking for similar)
+	personalityScore := 0.0
+	if me.PrefOpenness != nil && candidate.PrefOpenness != nil {
+		// Euclidean distance between My Ideal and Candidate's Real
+		// Since we don't have separate "Real" vs "Ideal" columns for candidate yet (we reused same cols for now or need to clarify),
+		// let's assume the columns in DB represent the user's traits primarily,
+		// and we use them as "Ideal" for the searcher and "Real" for the candidate.
+		// Wait, the migration added `pref_` columns.
+		// Let's assume `pref_` columns store the "Ideal" for the user.
+		// But where are the "Real" traits stored?
+		// Ah, in `big_five_results` table!
+		// But `Profile` struct doesn't have them joined.
+		// For MVP simplicity: Let's assume `pref_` columns are initialized with "Real" traits
+		// and then evolve to become "Ideal".
+		// So we compare `me.Pref` vs `candidate.Pref`.
+
+		dist := 0.0
+		dist += math.Pow(*me.PrefOpenness-*candidate.PrefOpenness, 2)
+		dist += math.Pow(*me.PrefConscientiousness-*candidate.PrefConscientiousness, 2)
+		dist += math.Pow(*me.PrefExtraversion-*candidate.PrefExtraversion, 2)
+		dist += math.Pow(*me.PrefAgreeableness-*candidate.PrefAgreeableness, 2)
+		dist += math.Pow(*me.PrefNeuroticism-*candidate.PrefNeuroticism, 2)
+		dist = math.Sqrt(dist)
+
+		// Max distance is sqrt(1^2 * 5) = sqrt(5) = 2.23
+		// Normalize to 0-1 (1 means close, 0 means far)
+		personalityScore = 1.0 - (dist / 2.23)
+		if personalityScore < 0 {
+			personalityScore = 0
+		}
+	} else {
+		// Fallback: Neutral score
+		personalityScore = 0.5
+	}
+	score += personalityScore * 40
+
+	// 2. Interests Compatibility (30%)
+	// Jaccard Index
+	interestsScore := 0.0
+	common := 0
+	total := len(me.Interests) + len(candidate.Interests)
+	if total > 0 {
+		// Simple intersection check
+		for _, myInt := range me.Interests {
+			for _, theirInt := range candidate.Interests {
+				if myInt == theirInt {
+					common++
+					break
+				}
+			}
+		}
+		// Union = Total - Common
+		union := total - common
+		if union > 0 {
+			interestsScore = float64(common) / float64(union)
+		}
+	}
+	score += interestsScore * 30
+
+	// 3. Demographics/Distance (30%)
+	demoScore := 1.0
+	if distanceKm != nil {
+		// Decay score as distance increases
+		// e.g. 0km = 1.0, 100km = 0.0
+		// Linear decay for simplicity
+		maxDist := 100.0
+		if me.PrefMaxDistanceKm != nil {
+			maxDist = float64(*me.PrefMaxDistanceKm)
+		}
+		distScore := 1.0 - (*distanceKm / maxDist)
+		if distScore < 0 {
+			distScore = 0
+		}
+		demoScore = distScore
+	}
+	score += demoScore * 30
+
+	return score
+}
+
+// Helper functions (duplicated from swipe usecase, should be in shared utils)
+func calculateDistance(lat1, lon1, lat2, lon2 float64) float64 {
+	const earthRadius = 6371.0
+	dLat := (lat2 - lat1) * (math.Pi / 180.0)
+	dLon := (lon2 - lon1) * (math.Pi / 180.0)
+	lat1Rad := lat1 * (math.Pi / 180.0)
+	lat2Rad := lat2 * (math.Pi / 180.0)
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Sin(dLon/2)*math.Sin(dLon/2)*math.Cos(lat1Rad)*math.Cos(lat2Rad)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return earthRadius * c
 }
 
 // ResetDislikes deletes all dislikes for a user to refresh the feed
@@ -158,24 +295,4 @@ func (uc *FeedUseCase) ResetDislikes(ctx context.Context, userID int) (int, erro
 	}
 
 	return count, nil
-}
-
-// calculateDistance calculates distance between two points using Haversine formula
-func calculateDistance(lat1, lon1, lat2, lon2 float64) float64 {
-	const earthRadius = 6371 // km
-
-	// Convert to radians
-	lat1Rad := lat1 * math.Pi / 180
-	lat2Rad := lat2 * math.Pi / 180
-	deltaLat := (lat2 - lat1) * math.Pi / 180
-	deltaLon := (lon2 - lon1) * math.Pi / 180
-
-	// Haversine formula
-	a := math.Sin(deltaLat/2)*math.Sin(deltaLat/2) +
-		math.Cos(lat1Rad)*math.Cos(lat2Rad)*
-			math.Sin(deltaLon/2)*math.Sin(deltaLon/2)
-
-	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
-
-	return earthRadius * c
 }
