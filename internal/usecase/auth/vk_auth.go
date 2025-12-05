@@ -72,14 +72,20 @@ func (uc *VKAuthUseCase) AuthenticateVK(ctx context.Context, params map[string]s
 	vkID := 0
 	fmt.Sscanf(params["vk_user_id"], "%d", &vkID)
 	if vkID == 0 {
+		fmt.Println("❌ ERROR: vk_user_id is 0")
 		return nil, domain.ErrInvalidInput
 	}
+
+	fmt.Printf("📝 Fetching VK user info for ID: %d with access_token: %s...\n", vkID, accessToken[:20]+"...")
 
 	// Fetch user info from VK API
 	vkUserInfo, err := uc.vkAPIClient.GetUserInfo(accessToken, vkID)
 	if err != nil {
+		fmt.Printf("❌ ERROR: Failed to fetch VK user info: %v\n", err)
 		return nil, fmt.Errorf("failed to fetch VK user info: %w", err)
 	}
+
+	fmt.Printf("✅ VK user info received: %s %s\n", vkUserInfo.FirstName, vkUserInfo.LastName)
 
 	// Try to get existing user
 	user, err := uc.userRepo.GetByVKID(ctx, vkID)

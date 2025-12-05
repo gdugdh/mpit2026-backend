@@ -1,27 +1,27 @@
-name: Deploy Backend
+# name: Deploy Backend
 
-on:
-  push:
-    branches:
-      - main
+# on:
+#   push:
+#     branches:
+#       - main
 
-jobs:
-  deploys:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+# jobs:
+#   deploys:
+#     if: github.event_name == 'push'
+#     runs-on: ubuntu-22.04
+#     steps:
+#       - name: Checkout repository
+#         uses: actions/checkout@v3
 
-      - name: Deploy to Server via SSH
-        uses: appleboy/ssh-action@v0.1.7
-        with:
-          host: ${{ secrets.DEV_SERVER_HOST }}
-          username: ${{ secrets.DEV_SERVER_USER }}
-          key: ${{ secrets.DEV_SERVER_SSH_KEY }}
-          script: |
-            cd ~/mpit2026-backend/
-            git pull
-            docker compose down
-            docker compose up --build -d
-            docker system prune -a
+#       - name: Deploy to Server via SSH
+#         uses: appleboy/ssh-action@v0.1.7
+#         with:
+#           host: ${{ secrets.DEV_SERVER_HOST }}
+#           username: ${{ secrets.DEV_SERVER_USER }}
+#           key: ${{ secrets.DEV_SERVER_SSH_KEY }}
+#           script: |
+#             cd ~/mpit2026-backend/
+#             git pull
+#             docker compose down
+#             docker compose up --build -d
+#             docker system prune -a

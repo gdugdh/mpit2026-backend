@@ -1,7 +1,7 @@
 -- Enable extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-CREATE EXTENSION IF NOT EXISTS "vector";
+-- CREATE EXTENSION IF NOT EXISTS "vector"; -- Temporarily disabled, install pgvector if needed
 
 -- Users table
 CREATE TABLE users (
@@ -69,6 +69,9 @@ CREATE INDEX idx_big_five_agreeableness ON big_five_results(agreeableness);
 CREATE INDEX idx_big_five_conscientiousness ON big_five_results(conscientiousness);
 
 -- User embeddings table for ML recommendations
+-- Temporarily disabled - requires pgvector extension
+-- Uncomment when pgvector is installed
+/*
 CREATE TABLE user_embeddings (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
@@ -83,6 +86,7 @@ CREATE TABLE user_embeddings (
 
 CREATE INDEX idx_embeddings_user_id ON user_embeddings(user_id);
 CREATE INDEX idx_embeddings_combined_vector ON user_embeddings USING ivfflat (combined_vector vector_cosine_ops);
+*/
 
 -- Sessions table
 CREATE TABLE sessions (
