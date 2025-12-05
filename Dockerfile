@@ -8,6 +8,7 @@ WORKDIR /app
 
 # Copy dependency files first (for Docker layer caching)
 COPY go.mod go.sum ./
+RUN go mod tidy
 RUN go mod download
 
 # Copy source code
