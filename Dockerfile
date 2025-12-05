@@ -13,8 +13,11 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build server binary with optimizations
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /bin/server ./cmd/server
+# Build server binary with optimizations and reduced memory usage
+# Use -p=1 to limit parallelism and reduce memory consumption
+# GOMEMLIMIT limits memory usage during compilation
+ENV GOMEMLIMIT=512MiB
+RUN CGO_ENABLED=0 GOOS=linux go build -p=1 -ldflags="-w -s" -o /bin/server ./cmd/server
 
 # Final stage - minimal Alpine image
 FROM alpine:latest
