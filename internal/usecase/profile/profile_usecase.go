@@ -3,24 +3,60 @@ package profile
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"github.com/gdugdh24/mpit2026-backend/internal/domain"
+	"github.com/gdugdh24/mpit2026-backend/internal/infrastructure/gemini"
 	"github.com/gdugdh24/mpit2026-backend/internal/repository"
 )
 
 type ProfileUseCase struct {
-	profileRepo repository.ProfileRepository
-	userRepo    repository.UserRepository
+	profileRepo  repository.ProfileRepository
+	userRepo     repository.UserRepository
+	geminiClient *gemini.GeminiClient
 }
 
 func NewProfileUseCase(
 	profileRepo repository.ProfileRepository,
 	userRepo repository.UserRepository,
+	geminiClient *gemini.GeminiClient,
 ) *ProfileUseCase {
 	return &ProfileUseCase{
-		profileRepo: profileRepo,
-		userRepo:    userRepo,
+		profileRepo:  profileRepo,
+		userRepo:     userRepo,
+		geminiClient: geminiClient,
 	}
+}
+
+// ... existing structs ...
+
+// GenerateBioRequest represents request to generate bio
+type GenerateBioRequest struct {
+	DisplayName string   `json:"display_name" binding:"required"`
+	Interests   []string `json:"interests" binding:"required"`
+	City        string   `json:"city" binding:"required"`
+}
+
+// GenerateBio generates creative bios
+func (uc *ProfileUseCase) GenerateBio(ctx context.Context, req *GenerateBioRequest) (map[string]string, error) {
+	if uc.geminiClient == nil {
+		return nil, fmt.Errorf("gemini client is not initialized")
+	}
+	return uc.geminiClient.GenerateBio(ctx, req.DisplayName, req.Interests, req.City)
+}
+
+// ... existing methods ...
+
+// calculateDistance uses stdlib math
+func calculateDistance(lat1, lon1, lat2, lon2 float64) float64 {
+	const earthRadius = 6371 // km
+	dLat := (lat2 - lat1) * (math.Pi / 180.0)
+	dLon := (lon2 - lon1) * (math.Pi / 180.0)
+	lat1Rad := lat1 * (math.Pi / 180.0)
+	lat2Rad := lat2 * (math.Pi / 180.0)
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Sin(dLon/2)*math.Sin(dLon/2)*math.Cos(lat1Rad)*math.Cos(lat2Rad)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	return earthRadius * c
 }
 
 // CreateProfileRequest represents profile creation request
@@ -164,57 +200,4 @@ func (uc *ProfileUseCase) UpdateProfile(ctx context.Context, userID int, req *Up
 	}
 
 	return profile, nil
-}
-
-// calculateDistance calculates distance between two points using Haversine formula
-func calculateDistance(lat1, lon1, lat2, lon2 float64) float64 {
-	const earthRadius = 6371 // km
-
-	// Convert to radians
-	lat1Rad := lat1 * 3.14159265359 / 180
-	lat2Rad := lat2 * 3.14159265359 / 180
-	deltaLat := (lat2 - lat1) * 3.14159265359 / 180
-	deltaLon := (lon2 - lon1) * 3.14159265359 / 180
-
-	// Haversine formula
-	a := 0.5 - 0.5*cosine(deltaLat) + cosine(lat1Rad)*cosine(lat2Rad)*(1-cosine(deltaLon))/2
-
-	return earthRadius * 2 * asin(sqrt(a))
-}
-
-// Helper math functions
-func sqrt(x float64) float64 {
-	if x < 0 {
-		return 0
-	}
-	z := 1.0
-	for i := 0; i < 10; i++ {
-		z = z - (z*z-x)/(2*z)
-	}
-	return z
-}
-
-func cosine(x float64) float64 {
-	// Taylor series approximation
-	result := 1.0
-	term := 1.0
-	for i := 1; i <= 10; i++ {
-		term *= -x * x / float64((2*i-1)*(2*i))
-		result += term
-	}
-	return result
-}
-
-func asin(x float64) float64 {
-	// Taylor series approximation
-	if x < -1 || x > 1 {
-		return 0
-	}
-	result := x
-	term := x
-	for i := 1; i <= 10; i++ {
-		term *= x * x * float64((2*i-1)*(2*i-1)) / float64((2*i)*(2*i+1))
-		result += term
-	}
-	return result
 }

@@ -382,6 +382,13 @@ func (uc *SwipeUseCase) enrichMatchWithAI(ctx context.Context, matchID, user1ID,
 		fmt.Printf("❌ [AI Wingman] Failed to generate icebreakers: %v\n", err)
 	}
 
-	// TODO: Save to DB. I need to add UpdateAIFields to MatchRepository.
-	fmt.Printf("⚠️  [AI Wingman] Note: AI content not saved to DB (UpdateAIFields not implemented)\n")
+	// Save AI content to database
+	if explanation != "" || len(icebreakers) > 0 {
+		err := uc.matchRepo.UpdateAIFields(ctx, matchID, explanation, icebreakers)
+		if err != nil {
+			fmt.Printf("❌ [AI Wingman] Failed to save AI content to DB: %v\n", err)
+		} else {
+			fmt.Printf("✅ [AI Wingman] AI content saved to DB successfully!\n")
+		}
+	}
 }

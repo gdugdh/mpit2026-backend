@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -198,4 +199,46 @@ func (h *ProfileHandler) GetProfileByUserID(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, profileResp)
+}
+
+// GenerateBio handles POST /profile/generate-bio
+// @Summary Generate bio with AI
+// @Description Generate 3 creative bios
+// @Tags profile
+// @Security BearerAuth
+// @Accept json
+// @Produce json
+// @Param request body profile.GenerateBioRequest true "Bio generation data"
+// @Success 200 {object} map[string]string
+// @Failure 400 {object} ErrorResponse
+// @Failure 401 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /profile/generate-bio [post]
+func (h *ProfileHandler) GenerateBio(c *gin.Context) {
+	_, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, ErrorResponse{
+			Error: "unauthorized",
+		})
+		return
+	}
+
+	var req profile.GenerateBioRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: "invalid request body",
+		})
+		return
+	}
+
+	bios, err := h.profileUseCase.GenerateBio(c.Request.Context(), &req)
+	if err != nil {
+		fmt.Printf("Error generating bio: %v\n", err)
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: "failed to generate bio",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, bios)
 }
