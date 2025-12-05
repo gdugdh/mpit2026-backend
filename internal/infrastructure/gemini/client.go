@@ -22,7 +22,7 @@ func NewGeminiClient(apiKey string) (*GeminiClient, error) {
 		return nil, fmt.Errorf("failed to create gemini client: %w", err)
 	}
 
-	model := client.GenerativeModel("gemini-1.5-pro")
+	model := client.GenerativeModel("gemini-2.0-flash-exp")
 	model.SetTemperature(0.7)
 
 	return &GeminiClient{
@@ -92,14 +92,15 @@ func (c *GeminiClient) getMockExplanation(user1Traits, user2Traits map[string]in
 
 func (c *GeminiClient) GenerateIcebreakers(ctx context.Context, user1Interests, user2Interests []string) ([]string, error) {
 	prompt := fmt.Sprintf(`
-		Generate 3 creative icebreaker messages for a dating app match.
+		Suggest 3 engaging discussion topics for two people who have just matched on a dating app.
 		User 1 Interests: %v
 		User 2 Interests: %v
 		
-		Task: Create 3 distinct opening lines that User 1 could send to User 2.
+		Task: Suggest 3 distinct topics they could discuss right now.
 		Focus on shared interests or interesting contrasts.
+		Format: Return specific questions or themes like "Discuss the best sci-fi movies of 2024" or "Ask about his trip to Japan".
 		Language: Russian.
-		Output: JSON array of strings. Example: ["Hi...", "Hello..."]
+		Output: JSON array of strings. Example: ["Discuss...", "Ask about..."]
 	`, user1Interests, user2Interests)
 
 	resp, err := c.model.GenerateContent(ctx, genai.Text(prompt))
@@ -141,4 +142,49 @@ func (c *GeminiClient) GenerateIcebreakers(ctx context.Context, user1Interests, 
 	}
 
 	return icebreakers, nil
+}
+
+func (c *GeminiClient) GenerateBio(ctx context.Context, displayName string, interests []string, city string) (map[string]string, error) {
+	prompt := fmt.Sprintf(`
+		Generate 3 creative dating profile bios for a user.
+		Name: %s
+		Interests: %v
+		City: %s
+		
+		Task: Write 3 different bios styles:
+		1. "funny": Humorous and witty.
+		2. "mysterious": Intriguing and short.
+		3. "creative": Unique and descriptive.
+		
+		Language: Russian.
+		Output: JSON object with keys "funny", "mysterious", "creative". Example: {"funny": "...", "mysterious": "..."}
+	`, displayName, interests, city)
+
+	resp, err := c.model.GenerateContent(ctx, genai.Text(prompt))
+	if err != nil {
+		return nil, err
+	}
+
+	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
+		return nil, fmt.Errorf("no content generated")
+	}
+
+	var sb strings.Builder
+	for _, part := range resp.Candidates[0].Content.Parts {
+		if txt, ok := part.(genai.Text); ok {
+			sb.WriteString(string(txt))
+		}
+	}
+
+	responseText := strings.TrimSpace(sb.String())
+	responseText = strings.TrimPrefix(responseText, "```json")
+	responseText = strings.TrimPrefix(responseText, "```")
+	responseText = strings.TrimSuffix(responseText, "```")
+
+	var bios map[string]string
+	if err := json.Unmarshal([]byte(responseText), &bios); err != nil {
+		return nil, fmt.Errorf("failed to parse bios: %w", err)
+	}
+
+	return bios, nil
 }

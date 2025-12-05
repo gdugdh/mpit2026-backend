@@ -72,6 +72,7 @@ func NewContainer(cfg *config.Config) (*Container, error) {
 	profileUseCase := profile.NewProfileUseCase(
 		profileRepo,
 		userRepo,
+		geminiClient,
 	)
 
 	bigFiveUseCase := bigfive.NewBigFiveUseCase(

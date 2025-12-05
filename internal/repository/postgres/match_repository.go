@@ -124,3 +124,23 @@ func (r *matchRepository) Delete(ctx context.Context, id int) error {
 	}
 	return nil
 }
+
+func (r *matchRepository) UpdateAIFields(ctx context.Context, matchID int, explanation string, icebreakers []string) error {
+	query := `
+		UPDATE matches 
+		SET match_explanation = $1, icebreakers = $2 
+		WHERE id = $3
+	`
+	result, err := r.db.ExecContext(ctx, query, explanation, pq.Array(icebreakers), matchID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return domain.ErrMatchNotFound
+	}
+	return nil
+}

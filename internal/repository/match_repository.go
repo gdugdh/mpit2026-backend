@@ -14,4 +14,5 @@ type MatchRepository interface {
 	GetActiveMatches(ctx context.Context, userID int) ([]*domain.Match, error)
 	UpdateStatus(ctx context.Context, id int, isActive bool) error
 	Delete(ctx context.Context, id int) error
+	UpdateAIFields(ctx context.Context, matchID int, explanation string, icebreakers []string) error
 }

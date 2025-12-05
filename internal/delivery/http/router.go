@@ -70,6 +70,7 @@ func (r *Router) Setup() *gin.Engine {
 				profile.GET("/me", r.profileHandler.GetMyProfile)
 				profile.PUT("/me", r.profileHandler.UpdateMyProfile)
 				profile.POST("/complete-onboarding", r.profileHandler.CompleteOnboarding)
+				profile.POST("/generate-bio", r.profileHandler.GenerateBio)
 				profile.GET("/:user_id", r.profileHandler.GetProfileByUserID)
 			}
 
