@@ -14,8 +14,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
+      # redis:
+      #   condition: service_healthy
     networks:
       - dating_network
     extra_hosts:
@@ -40,20 +40,20 @@ services:
     networks:
       - dating_network
 
-  redis:
-    image: redis:7-alpine
-    container_name: dating_redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    networks:
-      - dating_network
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: dating_redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 10s
+  #     timeout: 3s
+  #     retries: 5
+  #   networks:
+  #     - dating_network
 
   # Database migration tool (run manually)
   migrate:
@@ -71,7 +71,7 @@ services:
 
 volumes:
   postgres_data:
-  redis_data:
+  # redis_data:
 
 networks:
   dating_network:

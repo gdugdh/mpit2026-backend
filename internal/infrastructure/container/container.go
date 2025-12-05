@@ -35,11 +35,11 @@ func NewContainer(cfg *config.Config) (*Container, error) {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
 
-	// Initialize Redis
-	redisClient, err := database.NewRedisClient(&cfg.Redis)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize redis: %w", err)
-	}
+	// // Initialize Redis
+	// redisClient, err := database.NewRedisClient(&cfg.Redis)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to initialize redis: %w", err)
+	// }
 
 	// Initialize repositories
 	userRepo := postgres.NewUserRepository(db)
@@ -110,7 +110,7 @@ func NewContainer(cfg *config.Config) (*Container, error) {
 	return &Container{
 		Config: cfg,
 		DB:     db,
-		Redis:  redisClient,
+		Redis:  nil,
 		Server: srv,
 	}, nil
 }
